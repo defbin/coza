@@ -1,0 +1,17 @@
+# Created by .ignore support plugin (hsz.mobi)
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+.idea/*
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+.history/
+./coza
