@@ -25,9 +25,9 @@ func RunWorkerPool(ctx context.Context, size int, in <-chan *RequestParams) <-ch
 	out := make(chan Result, size)
 
 	wg := sync.WaitGroup{}
-	wg.Add(size)
 
 	for i := 0; i != size; i++ {
+		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
@@ -117,7 +117,14 @@ func doRequest(c *http.Client, req *http.Request) (time.Duration, int64, error) 
 	if err != nil {
 		return duration, 0, err
 	}
-	defer res.Body.Close()
+
+	defer func() {
+		// todo: notify caller
+		err = res.Body.Close()
+		if err != nil {
+			log.Printf("coza: request: unable to close response: %v\n", err.Error())
+		}
+	}()
 
 	nRead, err := sizeOfBody(res.Body)
 	if err != nil {
@@ -133,7 +140,7 @@ func (nRead) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func sizeOfBody(body io.ReadCloser) (int64, error) {
+func sizeOfBody(body io.Reader) (int64, error) {
 	return io.Copy(nRead{}, body)
 }
 

@@ -12,50 +12,61 @@ import (
 	"github.com/defbin/coza"
 )
 
-var (
-	tries          = flag.Int("r", 10, "number of total request")
-	concurrency    = flag.Int("c", runtime.NumCPU(), "max number of concurrent requests")
-	timeout        = flag.Duration("t", 1*time.Minute, "timeout for all requests")
-	requestTimeout = flag.Duration("rt", 10*time.Second, "timeout per request")
-)
+type AppConfig struct {
+	tries          int
+	concurrency    int
+	timeout        time.Duration
+	requestTimeout time.Duration
+	url            string
+}
 
-func main() {
+var appConfig AppConfig
+
+func init() {
+	flag.IntVar(&appConfig.tries, "r", 10, "number of total request")
+	flag.IntVar(&appConfig.concurrency, "c", runtime.NumCPU(), "max number of concurrent requests")
+	flag.DurationVar(&appConfig.timeout, "t", 1*time.Minute, "timeout for all requests")
+	flag.DurationVar(&appConfig.requestTimeout, "rt", 10*time.Second, "timeout per request")
 	flag.Parse()
 
 	if nArg := flag.NArg(); nArg != 1 {
-		log.Printf("Wrong number of argument %v. Expected 1.\n", nArg)
+		log.Printf("Wrong number of argument: %v. Expected 1.\n", nArg)
 		os.Exit(1)
 	}
 
+	appConfig.url = flag.Arg(0)
+}
+
+func main() {
 	startedAt := time.Now()
-	results := do()
-	report(results)
+
+	results := do(appConfig)
+	fmt.Println(report(results))
 
 	fmt.Printf("Completed in %v\n", time.Since(startedAt))
 }
 
-func do() []coza.Result {
-	params := make(chan *coza.RequestParams, *concurrency)
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-
+func do(config AppConfig) []coza.Result {
+	ctx, cancel := context.WithTimeout(context.Background(), config.timeout)
 	defer cancel()
 
-	resultC := coza.RunWorkerPool(ctx, *concurrency, params)
+	paramsC := make(chan *coza.RequestParams, config.concurrency)
+	resultC := coza.RunWorkerPool(ctx, config.concurrency, paramsC)
 
 	go func() {
-		reqParams := &coza.RequestParams{
-			URL:     "http://google.com",
-			Timeout: *requestTimeout,
+		params := &coza.RequestParams{
+			URL:     config.url,
+			Timeout: config.requestTimeout,
 		}
 
-		for i := 0; i != *tries; i++ {
-			params <- reqParams
+		for i := 0; i != config.tries; i++ {
+			paramsC <- params
 		}
 
-		close(params)
+		close(paramsC)
 	}()
 
-	results := make([]coza.Result, 0, *tries)
+	results := make([]coza.Result, 0, config.tries)
 	for r := range resultC {
 		results = append(results, r)
 	}
@@ -63,7 +74,7 @@ func do() []coza.Result {
 	return results
 }
 
-func report(results []coza.Result) {
+func report(results []coza.Result) string {
 	metrics := make([]coza.Metric, len(results))
 
 	for i := range results {
@@ -71,7 +82,7 @@ func report(results []coza.Result) {
 	}
 
 	stat := coza.Calc(metrics)
-	fmt.Println(formatStat(stat))
+	return formatStat(stat)
 }
 
 func formatStat(stat coza.Stat) string {
