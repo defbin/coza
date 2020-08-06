@@ -2,14 +2,36 @@ package coza
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"reflect"
 	"sync"
 	"time"
 )
+
+var ErrInvalidURL = errors.New("invalid url")
+
+type errorWrapper struct {
+	msg string
+	err error
+}
+
+func (e errorWrapper) Error() string {
+	return e.msg
+}
+
+func (e errorWrapper) Unwrap() error {
+	return e.err
+}
+
+func newError(err error, format string, a ...interface{}) error {
+	msg := fmt.Sprintf(format, a...)
+	return errorWrapper{msg, err}
+}
 
 type RequestParams struct {
 	URL     string
@@ -130,7 +152,7 @@ func RunWorker(ctx context.Context, in <-chan *RequestParams) <-chan Result {
 }
 
 func Run(ctx context.Context, client *http.Client, params *RequestParams) (Result, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, params.Timeout)
+	reqCtx, cancel := makeRequestContext(ctx, params.Timeout)
 	defer cancel()
 
 	req, err := createRequest(reqCtx, params)
@@ -138,22 +160,27 @@ func Run(ctx context.Context, client *http.Client, params *RequestParams) (Resul
 		return nil, fmt.Errorf("coza: run: %w", err)
 	}
 
-	duration, nRead, err := doRequest(client, req)
-	if err != nil {
-		err = fmt.Errorf("coza: run: %w", err)
-	}
-
-	result := resultImpl{
-		duration: duration,
-		nRead:    nRead,
-		err:      err,
-	}
+	result := resultImpl{}
+	result.duration, result.nRead, result.err = doRequest(client, req)
 
 	return &result, nil
 }
 
+func makeRequestContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+
+	return context.WithTimeout(ctx, timeout)
+}
+
 func createRequest(ctx context.Context, params *RequestParams) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, params.URL, nil)
+	u, err := url.ParseRequestURI(params.URL)
+	if err != nil {
+		return nil, newError(ErrInvalidURL, "invalid url: %v", params.URL)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create request: %w", err)
 	}
