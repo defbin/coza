@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -46,6 +47,57 @@ func RunWorkerPool(ctx context.Context, size int, in <-chan *RequestParams) <-ch
 	return out
 }
 
+// alternative implementation of RunWorkerPool.
+// todo: compare performance
+func _(ctx context.Context, size int, in <-chan *RequestParams) <-chan Result {
+	out := make(chan Result, size)
+
+	removeCase := func(cases []reflect.SelectCase, index int) []reflect.SelectCase {
+		copy(cases[index:], cases[index+1:])
+		return cases[:len(cases)-1]
+	}
+
+	go func() {
+		cases := make([]reflect.SelectCase, size+1)
+
+		for i := 0; i != size; i++ {
+			resultC := RunWorker(ctx, in)
+			cases[i] = reflect.SelectCase{
+				Dir:  reflect.SelectRecv,
+				Chan: reflect.ValueOf(resultC),
+			}
+		}
+
+		ctxCancelCase := reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(ctx.Done()),
+		}
+
+		cases[size] = ctxCancelCase
+
+		for len(cases) != 1 {
+			i, v, ok := reflect.Select(cases)
+			if !ok {
+				cases = removeCase(cases, i)
+
+				continue
+			}
+
+			if &cases[i] == &ctxCancelCase {
+				close(out)
+
+				return
+			}
+
+			out <- v.Interface().(Result)
+		}
+
+		close(out)
+	}()
+
+	return out
+}
+
 func RunWorker(ctx context.Context, in <-chan *RequestParams) <-chan Result {
 	out := make(chan Result)
 
@@ -54,21 +106,21 @@ func RunWorker(ctx context.Context, in <-chan *RequestParams) <-chan Result {
 			select {
 			case <-ctx.Done():
 				close(out)
-
 				return
+
 			case params, ok := <-in:
 				if !ok {
 					close(out)
-
 					return
 				}
 
 				d, err := Run(ctx, http.DefaultClient, params)
 				if err != nil {
+					// todo: notify receiver
 					log.Println(err)
-
 					continue
 				}
+
 				out <- d
 			}
 		}
