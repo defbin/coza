@@ -22,7 +22,7 @@ type Metric interface {
 }
 
 func Calc(metrics []Metric) Stat {
-	stat := &statImpl{min: math.MaxInt64}
+	stat := newStatImpl()
 
 	if len(metrics) == 0 {
 		return stat
@@ -100,4 +100,8 @@ func (s *statImpl) P95() time.Duration {
 
 func (s *statImpl) NRead() int64 {
 	return s.nRead
+}
+
+func newStatImpl() *statImpl {
+	return &statImpl{min: math.MaxInt64}
 }

@@ -9,6 +9,14 @@ import (
 )
 
 func TestRun(t *testing.T) {
+	assertResultError := func(t *testing.T, got, want Result) {
+		t.Helper()
+
+		if !errors.Is(got.Err(), want.Err()) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+
 	server := httptest.NewServer(nil)
 	defer server.Close()
 
@@ -54,14 +62,6 @@ func TestRun(t *testing.T) {
 		assertNoError(t, err)
 		assertResultError(t, got, want)
 	})
-}
-
-func assertResultError(t *testing.T, got, want Result) {
-	t.Helper()
-
-	if !errors.Is(got.Err(), want.Err()) {
-		t.Errorf("got %v, want %v", got, want)
-	}
 }
 
 func assertNoError(t *testing.T, err error) {
